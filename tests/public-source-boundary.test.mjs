@@ -32,13 +32,13 @@ const blocked=new Set([
   '2043dbb9e445fb7d050909905b04399b4f804d03b1342952d1b1ea533d7e991b'
 ]);
 const sha256=text=>createHash('sha256').update(text.toLowerCase()).digest('hex');
-function hasProtectedReference(text){
+function hasProtectedReference(text,denylist=blocked){
   // Tokenization catches single-word identifiers, compound IDs, and
   // consecutive words. No private words are reproduced in error output.
   const words=text.match(/[A-Za-z0-9_./-]+/g)?.map(v=>v.toLowerCase())||[];
   for(let i=0;i<words.length;i++){
-    if(blocked.has(sha256(words[i])))return true;
-    if(i+1<words.length&&blocked.has(sha256(words[i]+' '+words[i+1])))return true;
+    if(denylist.has(sha256(words[i])))return true;
+    if(i+1<words.length&&denylist.has(sha256(words[i]+' '+words[i+1])))return true;
   }
   return false;
 }
@@ -49,11 +49,12 @@ test('public HEAD files must contain no protected project-specific terms',()=>{
       'HOLD_PUBLIC_DISCLOSURE_CHECK: protected reference in '+path);
   }
 });
-test('privacy sentinel fails on synthetic protected tokens without printing them',()=>{
-  // Public fixtures are computed from digest-only sentinels, not actual
-  // protected terms. No private term is stored in this test or error output.
+test('synthetic sensitive identifier triggers a blocked hash without private text',()=>{
+  const marker='SYNTHETIC_SECRET_FOR_REGRESSION';
+  const denied=new Set([sha256(marker)]);
+  assert.equal(hasProtectedReference('generic signer custody',denied),false);
+  assert.equal(hasProtectedReference('generic '+marker+' custody',denied),true);
   assert.equal(hasProtectedReference('generic signer custody'),false);
-  assert.equal(sha256('generic signer custody').length,64);
 });
 test('public README preserves explicit manual-only and no-effect boundaries',()=>{
   const text=readFileSync(new URL('../README.md',import.meta.url),'utf8');
