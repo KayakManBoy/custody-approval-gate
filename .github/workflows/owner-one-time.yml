@@ -1,0 +1,59 @@
+# PA-456: owner-only opt-in; NOT independent approval.
+# Zero secrets in source or inspect. No CREATE without later exact approval.
+name: PA-456 owner-only one-time signer custody
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'CHECK_ONLY or separately authorized CREATE_ONCE'
+        required: true
+        type: choice
+        default: CHECK_ONLY
+        options:
+          - CHECK_ONLY
+          - CREATE_ONCE
+permissions: {}
+concurrency:
+  group: pa456-owner-one-shot-custody
+  cancel-in-progress: false
+jobs:
+  inspect:
+    if: ${{ github.repository == 'KayakManBoy/custody-approval-gate' && github.actor == 'KayakManBoy' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && github.run_attempt == 1 }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Check exact owner review environment and protected CI-gated main (GitHub GET only)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          node --check scripts/verify-owner-gate.mjs
+          node scripts/verify-owner-gate.mjs
+  create:
+    needs: inspect
+    if: ${{ github.repository == 'KayakManBoy/custody-approval-gate' && github.actor == 'KayakManBoy' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.action == 'CREATE_ONCE' && github.run_attempt == 1 }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    environment: signer-custody-owner
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Create exactly one signer only after separate effect authorization
+        env:
+          CUSTODY_ACTION: ${{ inputs.action }}
+          APPROVED_COMMIT_SHA: ${{ secrets.CF_APPROVED_COMMIT_SHA }}
+          CF_TEMP_EDIT_TOKEN: ${{ secrets.CF_TEMP_EDIT_TOKEN }}
+          CF_TARGET_ACCOUNT: ${{ secrets.CF_TARGET_ACCOUNT }}
+          CF_TARGET_STORE: ${{ secrets.CF_TARGET_STORE }}
+          CF_TARGET_SECRET_NAME: ${{ secrets.CF_TARGET_SECRET_NAME }}
+        run: |
+          node --check scripts/create-once.mjs
+          node scripts/create-once.mjs
