@@ -63,3 +63,8 @@ Public commits and pull-request descriptions are durable records. Cleaning the c
 - [GitHub deployment branch policies](https://docs.github.com/en/rest/deployments/branch-policies)
 - [Cloudflare token verification](https://developers.cloudflare.com/api/resources/accounts/subresources/tokens/methods/verify/)
 - [Cloudflare Secrets Store](https://developers.cloudflare.com/api/resources/secrets_store/)
+
+
+## PA-465 — Opaque GitHub Actions token compatibility (source-only proposal)
+
+The first owner-only [CHECK_ONLY #41228033425](https://github.com/KayakManBoy/custody-approval-gate/actions/runs/41228033425) at protected `main` `28748f6cca11b7bf1a2cccc31cc5fc4a97bfcc8b` **FAILED** with `stage=INPUT`, before any GitHub GET. The recorded run metadata verifies the owner actor, main branch, SHA and first attempt. An overly restrictive short-token regex in both public GitHub preflight scripts is the leading explanation, not proof of an inspected token: GitHub introduced JWT-format installation tokens containing dots and significantly longer strings in 2026. The token is opaque and must never be decoded, logged or matched to a fixed prefix/length. The proposed fix accepts any nonempty HTTP-header-safe printable ASCII bearer and relies on GitHub's actual authenticated GET responses, while retaining every actor/ref/SHA/environment/CI requirement. The owner script now distinguishes `INPUT_CONTEXT` from `INPUT_TOKEN` if a subsequent explicitly authorized check fails. An unchanged `HOLD` remains mandatory until real protected settings are independently verified. No new dispatch, token read, permissions change, secret, issuer deployment or Cloudflare effect is authorized by merging source.

@@ -1,5 +1,6 @@
 /** No provider credential, mutation, or environment binding. Public-repo approval verification. */
 import {pathToFileURL} from 'node:url';
+import {isHeaderSafeGitHubToken} from './github-token.mjs';
 
 export const REPO = 'KayakManBoy/custody-approval-gate';
 export const OWNER = 'KayakManBoy';
@@ -29,7 +30,7 @@ export async function verifyGate({repository, actor, ref, expectedReviewer, gith
   get = fetch} = {}) {
   if (repository !== REPO || actor !== OWNER || ref !== 'refs/heads/main' ||
     !login(expectedReviewer) || expectedReviewer === OWNER ||
-    typeof githubToken !== 'string' || !/^[A-Za-z0-9_+-]{20,512}$/.test(githubToken) ||
+    !isHeaderSafeGitHubToken(githubToken) ||
     typeof get !== 'function') hold();
   const e = await getJSON(get, envURL, githubToken);
   if (!plain(e) || e.name !== ENVIRONMENT || !plain(e.deployment_branch_policy) ||
