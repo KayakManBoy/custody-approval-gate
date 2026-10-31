@@ -75,21 +75,21 @@ function makeKey() {
 
 export async function createOnce({repo, actor, ref, sha, approvedSha, runAttempt = 1, action, token,
   account, store, secretName, fetchFn = fetch, generator = makeKey,
-  tokenVerifier = verifyTokenLifetime} = {}) {
+  tokenVerifier = verifyTokenLifetime, nowMs = Date.now()} = {}) {
   if (repo !== 'KayakManBoy/custody-approval-gate' || actor !== 'KayakManBoy' ||
     ref !== 'refs/heads/main' || runAttempt !== 1 || action !== 'CREATE_ONCE' || !bytes(sha) ||
     sha !== approvedSha || !hex32(account) || !hex32(store) ||
     typeof secretName !== 'string' || !/^[A-Z][A-Z0-9_]{4,80}$/.test(secretName) ||
     typeof token !== 'string' || !/^[A-Za-z0-9_-]{30,512}$/.test(token) ||
     typeof fetchFn !== 'function' || typeof generator !== 'function' ||
-    typeof tokenVerifier !== 'function') pre();
+    typeof tokenVerifier !== 'function' || !Number.isSafeInteger(nowMs) || nowMs <= 0) pre();
   const endpoint = 'https://api.cloudflare.com/client/v4/accounts/' + account +
     '/secrets_store/stores/' + store + '/secrets';
   const list = endpoint + '?per_page=100&page=1';
   const auth = {authorization: 'Bearer ' + token, accept: 'application/json'};
   // Verify the short-lived account token BEFORE inventory, key generation,
   // or any possible account-wide Secrets Store mutation.
-  try { await tokenVerifier({fetchFn, account, token}); } catch { pre(); }
+  try { await tokenVerifier({fetchFn, account, token, nowMs}); } catch { pre(); }
   let listing;
   try { listing = await fetchJSON(fetchFn, list, {method: 'GET', headers: auth}, pre); } catch { pre(); }
   const info = listing.result_info;
