@@ -48,12 +48,14 @@ test('review gate rejects false authority, self-review and deployment policy dri
   }
 });
 
-const inventory = {success: true, errors: [], result: [{name: 'UNRELATED_SAFE_ENTRY'}], result_info: {total_pages: 1}};
+const inventory = {success: true, errors: [], result: [{name: 'UNRELATED_SAFE_ENTRY'}],
+  result_info: {page: 1, total_pages: 1, total_count: 1, count: 1}};
 const created = {success: true, errors: [], result: [{name, store_id: store,
   id: 'd'.repeat(32), status: 'active', scopes: ['workers']}]};
 const base = extra => ({repo: REPO, actor: OWNER, ref: 'refs/heads/main', sha: approvedSha,
   approvedSha, action: 'CREATE_ONCE', token: 't'.repeat(40), account, store,
-  secretName: name, ...extra});
+  secretName: name, tokenVerifier: async () => ({active: true, boundedExpiration: true}),
+  ...extra});
 
 test('one-shot creates only the designated secret and generated private key never enters receipt', async () => {
   let calls = 0;
@@ -100,10 +102,14 @@ test('before a write, mismatched SHA, owner, mode, target and inventory fail clo
     assert.equal(calls, 0);
   }
   for (const bad of [
-    {...inventory, result: [{name}]}, {...inventory, result_info: {total_pages: 2}},
+    {...inventory, result: [{name}]}, {...inventory, result_info: {...inventory.result_info, total_pages: 2}},
+    {...inventory, result_info: {...inventory.result_info, total_count: 2}},
+    {...inventory, result_info: {...inventory.result_info, count: 0}},
+    {...inventory, result_info: {...inventory.result_info, page: 2}},
+    {...inventory, result_info: {...inventory.result_info, total_count: undefined}},
     {...inventory, errors: ['bad']}, {...inventory, result: []},
   ]) {
-    if (bad.result.length === 0 && bad.result_info.total_pages === 1 && !bad.errors.length) continue;
+    if (bad.result.length === 0) continue;
     let count = 0;
     await assert.rejects(() => createOnce(base({fetchFn: async url => {
       count++; return response(url, bad);
