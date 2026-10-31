@@ -13,6 +13,9 @@ const ENV_URL = ROOT + '/environments/' + ENVIRONMENT;
 const BRANCHES_URL = ENV_URL + '/deployment-branch-policies?per_page=100&page=1';
 const RULESETS_URL = ROOT + '/rulesets?per_page=100&page=1';
 const MAIN_URL = ROOT + '/branches/main';
+// GitHub Actions public App ID: status checks from other apps must never
+// satisfy the protected branch gate by reusing the "test" context name.
+export const GITHUB_ACTIONS_APP_ID = 15368;
 const HOLD = 'HOLD_PA456_OWNER_CUSTODY_UNVERIFIED';
 const deny = () => { throw Error(HOLD); };
 const plain = v => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -89,9 +92,15 @@ export async function verifyOwnerGate({repository, actor, ref, sha, githubToken,
   if (!plain(pr) || pr.required_approving_review_count !== 0 ||
     pr.require_code_owner_review !== false || pr.require_last_push_approval !== false) deny();
   const checks = rules.get('required_status_checks').parameters;
+  // GitHub can accept a context-only "test" status from an untrusted source.
+  // Require precisely the GitHub Actions CI job identity, not "any source".
   if (!plain(checks) || checks.strict_required_status_checks_policy !== true ||
+    checks.do_not_enforce_on_create === true ||
     !Array.isArray(checks.required_status_checks) ||
-    !checks.required_status_checks.some(x => x?.context === 'test')) deny();
+    checks.required_status_checks.length !== 1 ||
+    !plain(checks.required_status_checks[0]) ||
+    checks.required_status_checks[0].context !== 'test' ||
+    checks.required_status_checks[0].integration_id !== GITHUB_ACTIONS_APP_ID) deny();
 
   const main = await getJSON(get, MAIN_URL, githubToken);
   if (!plain(main) || main.name !== 'main' || main.protected !== true ||

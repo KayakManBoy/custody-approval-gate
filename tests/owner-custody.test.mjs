@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {verifyOwnerGate, REPO, OWNER, ENVIRONMENT} from '../scripts/verify-owner-gate.mjs';
+import {verifyOwnerGate, REPO, OWNER, ENVIRONMENT, GITHUB_ACTIONS_APP_ID} from '../scripts/verify-owner-gate.mjs';
 
 const sha = 'a'.repeat(40), token = 'ghs_' + 't'.repeat(32);
 const root = 'https://api.github.com/repos/' + REPO;
@@ -19,7 +19,7 @@ const ruleset = {id: 456, source_type: 'Repository', source: REPO, target: 'bran
       require_code_owner_review: false, require_last_push_approval: false}},
     {type: 'required_status_checks', parameters: {
       strict_required_status_checks_policy: true,
-      required_status_checks: [{context: 'test'}]}}]};
+      required_status_checks: [{context: 'test', integration_id:GITHUB_ACTIONS_APP_ID}]}}]};
 const main = {name: 'main', protected: true, commit: {sha}};
 const ok = (url, data, status = 200) => ({
   url, status, ok: status === 200, text: async () => JSON.stringify(data)});
@@ -86,7 +86,16 @@ test('public main must have active visible CI/PR rules; bypass still requires ow
     {ruleset: variation({rules: ruleset.rules.map(r => r.type === 'pull_request' ?
       {...r,parameters:{...r.parameters,required_approving_review_count: 1}} : r)})},
     {ruleset: variation({rules: ruleset.rules.map(r => r.type === 'required_status_checks' ?
-      {...r,parameters:{...r.parameters,required_status_checks:[{context:'untrusted'}]}} : r)})},
+      {...r,parameters:{...r.parameters,required_status_checks:[{context:'untrusted',integration_id:GITHUB_ACTIONS_APP_ID}]}} : r)})},
+    ...[
+      [{context:'test'}],
+      [{context:'test',integration_id:null}],
+      [{context:'test',integration_id:42}],
+      [{context:'test',integration_id:GITHUB_ACTIONS_APP_ID},{context:'test',integration_id:GITHUB_ACTIONS_APP_ID}]
+    ].map(required_status_checks => ({ruleset:variation({rules:ruleset.rules.map(r=>
+      r.type==='required_status_checks' ? {...r,parameters:{...r.parameters,required_status_checks}}:r)})})),
+    {ruleset: variation({rules: ruleset.rules.map(r => r.type === 'required_status_checks' ?
+      {...r,parameters:{...r.parameters,do_not_enforce_on_create:true}} : r)})},
     {main: {...main, protected: false}},
     {main: {...main, commit:{sha:'b'.repeat(40)}}}
   ]) await denied({get: fixtureGet(invalid)});
@@ -109,4 +118,18 @@ test('owner workflow never runs on push or accesses environment secrets in inspe
   assert.match(src, /secrets.CF_TEMP_EDIT_TOKEN/);
   assert.match(src, /node scripts\/create-once.mjs/);
   assert.doesNotMatch(src, /permissions:\s*\n\s*contents: write/);
+});
+
+
+test('required CI workflow is pinned to an offline GitHub Actions test job',()=>{
+  assert.equal(GITHUB_ACTIONS_APP_ID,15368);
+  const source=readFileSync(new URL('../.github/workflows/offline-tests.yml',import.meta.url),'utf8');
+  assert.match(source,/^  pull_request:$/m);
+  assert.match(source,/^  push:$/m);
+  assert.match(source,/^    branches: \[main\]$/m);
+  assert.match(source,/^  test:$/m);
+  assert.match(source,/node --test tests\/\*\.test\.mjs/);
+  assert.match(source,/actions\/checkout@[a-f0-9]{40}/);
+  assert.match(source,/persist-credentials: false/);
+  assert.doesNotMatch(source,/secrets\.|environment:|contents: write|id-token: write|workflow_dispatch:/);
 });

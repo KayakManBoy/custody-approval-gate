@@ -42,7 +42,7 @@ export async function verifyTokenLifetime({fetchFn = fetch, account, token,
   const record = verified.result;
   if (!hex32(record.id) || record.status !== 'active' ||
     typeof record.expires_on !== 'string' ||
-    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(record.expires_on)) pre();
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/.test(record.expires_on)) pre();
   const expires = Date.parse(record.expires_on);
   // Reject missing, expired and long-lived authority; preserve at least
   // two minutes for a bounded write and no more than one hour of exposure.
@@ -50,7 +50,7 @@ export async function verifyTokenLifetime({fetchFn = fetch, account, token,
     expires - nowMs > 3600000) pre();
   if (record.not_before !== undefined && record.not_before !== null) {
     if (typeof record.not_before !== 'string' ||
-      !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(record.not_before)) pre();
+      !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/.test(record.not_before)) pre();
     const starts = Date.parse(record.not_before);
     if (!Number.isFinite(starts) || starts > nowMs) pre();
   }
