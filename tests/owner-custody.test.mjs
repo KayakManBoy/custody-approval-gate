@@ -92,6 +92,7 @@ test('owner workflow never runs on push or accesses environment secrets in inspe
   assert.doesNotMatch(src, /^\s+(push|pull_request|schedule|workflow_run):/m);
   assert.match(src, /inputs.action == 'CREATE_ONCE'/);
   assert.match(src, /needs: inspect/);
+  assert.match(src.split('  create:\n')[0], /actions: read/);
   assert.match(src, /github.run_attempt == 1/g);
   assert.equal((src.match(/github.run_attempt == 1/g) || []).length, 2);
   const inspect = src.split('  create:\n')[0];
