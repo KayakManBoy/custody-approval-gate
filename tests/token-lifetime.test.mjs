@@ -26,12 +26,23 @@ test('fixed account-only verification returns sanitized fact and no token identi
     active:true,boundedExpiration:true});
 });
 
+test('bounded UTC RFC3339 fractional precision is accepted',async()=>{
+  for(const fraction of ['.123','.123456','.123456789']){
+    const body={...valid,result:{...valid.result,
+      expires_on:expires(20).replace('Z',fraction+'Z'),
+      not_before:expires(-20).replace('Z',fraction+'Z')}};
+    assert.deepEqual(await verifyTokenLifetime(args({fetchFn:get(body)})),
+      {active:true,boundedExpiration:true});
+  }
+});
+
 test('bounded active expiry is mandatory; no long-lived or missing validity',async()=>{
   for(const record of [
     {status:'disabled'}, {status:'expired'},
     {expires_on:undefined}, {expires_on:expires(1)},
     {expires_on:expires(61)}, {expires_on:expires(-2)},
     {expires_on:'2026-02-30T00:00:00Z'}, {expires_on:'tomorrow'},
+    {expires_on:expires(20).replace('Z','.1234567890Z')},
     {not_before:expires(21)},{not_before:'bad'},
     {id:'not-a-token-id'}
   ]) {
