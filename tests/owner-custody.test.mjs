@@ -42,8 +42,8 @@ const denied = async overrides =>
 const variation = patch => ({...ruleset, ...patch});
 
 test('owner-only is a labeled, exact-main protected check, not independent review', async () => {
-  assert.deepEqual(await verifyOwnerGate(args()), {verified: true,
-    model: 'OWNER_ONLY_NOT_INDEPENDENT', sha});
+  assert.deepEqual(await verifyOwnerGate(args()), {visibleRulesVerified: true,
+    ownerAdminCheckRequired: true, model: 'OWNER_ONLY_NOT_INDEPENDENT', sha});
 });
 
 test('wrong initiating identity, SHA and GitHub HTTP errors deny before cloud', async () => {
@@ -70,7 +70,13 @@ test('owner review environment must exist with exact required owner and main onl
   ]) await denied({get: fixtureGet({branches: invalid})});
 });
 
-test('public main must have an actual active zero-bypass CI/PR ruleset', async () => {
+test('public main must have active visible CI/PR rules; bypass still requires owner admin check', async () => {
+  // GitHub omits bypass_actors without ruleset write permission. Do not invent
+  // independent no-bypass verification from a read-only workflow token.
+  const {bypass_actors: ignored, ...publicDetails} = ruleset;
+  assert.deepEqual(await verifyOwnerGate(args({get: fixtureGet({
+    ruleset: publicDetails})})), {visibleRulesVerified: true,
+    ownerAdminCheckRequired: true, model:'OWNER_ONLY_NOT_INDEPENDENT', sha});
   for (const invalid of [
     {listed: []}, {listed: [{...listed[0], enforcement:'disabled'}]},
     {ruleset: variation({bypass_actors: [{actor_type:'RepositoryRole', actor_id:5}]})},
