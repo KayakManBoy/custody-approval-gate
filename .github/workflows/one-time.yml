@@ -41,11 +41,21 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
+      actions: read
     environment: signer-custody-review
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
+      # GitHub environment approvals can remain queued while branch rules change.
+      # Re-read the real environment AFTER approval, before exposing CF credentials.
+      - name: Recheck independent reviewer protections after approval (GitHub GET only)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          EXPECTED_REVIEWER: ${{ vars.INDEPENDENT_REVIEWER_LOGIN }}
+        run: |
+          node --check scripts/verify-gate.mjs
+          node scripts/verify-gate.mjs
       - name: Create exactly one protected signing key (separate approval and consent required)
         env:
           CUSTODY_ACTION: ${{ inputs.action }}
