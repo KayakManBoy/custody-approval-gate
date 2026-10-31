@@ -66,7 +66,7 @@ test('production createOnce checks real token verifier before inventory, key gen
   await assert.rejects(()=>createOnce({
     repo:'KayakManBoy/custody-approval-gate',actor:'KayakManBoy',ref:'refs/heads/main',
     sha:'c'.repeat(40),approvedSha:'c'.repeat(40),runAttempt:1,action:'CREATE_ONCE',
-    token,account,store,secretName:'ISSUER_SIGNING_KEY',
+    token,account,store,secretName:'ISSUER_SIGNING_KEY',nowMs,
     fetchFn,generator:()=>{generations++;throw Error('must not generate');}
   }),/HOLD_PREWRITE/);
   assert.equal(calls,1);
