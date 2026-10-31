@@ -48,7 +48,9 @@ test('review gate rejects false authority, self-review and deployment policy dri
   }
 });
 
-const inventory = {success: true, errors: [], result: [{name: 'UNRELATED_SAFE_ENTRY'}],
+const inventory = {success: true, errors: [], result: [{
+  id:'e'.repeat(32), store_id:store, name:'UNRELATED_SAFE_ENTRY',
+  status:'active', scopes:['workers']}],
   result_info: {page: 1, total_pages: 1, total_count: 1, count: 1}};
 const created = {success: true, errors: [], result: [{name, store_id: store,
   id: 'd'.repeat(32), status: 'active', scopes: ['workers']}]};
@@ -102,7 +104,13 @@ test('before a write, mismatched SHA, owner, mode, target and inventory fail clo
     assert.equal(calls, 0);
   }
   for (const bad of [
-    {...inventory, result: [{name}]}, {...inventory, result_info: {...inventory.result_info, total_pages: 2}},
+    {...inventory, result: [{...inventory.result[0],name}]},
+    {...inventory, result: [{...inventory.result[0],store_id:'d'.repeat(32)}]},
+    {...inventory, result: [{...inventory.result[0],id:'bad'}]},
+    {...inventory, result: [{...inventory.result[0],status:'unknown'}]},
+    {...inventory, result: [{...inventory.result[0],value:'sensitive-value'}]},
+    {...inventory, result: [{...inventory.result[0],name:'malformed name'}]},
+    {...inventory, result_info: {...inventory.result_info, total_pages: 2}},
     {...inventory, result_info: {...inventory.result_info, total_count: 2}},
     {...inventory, result_info: {...inventory.result_info, count: 0}},
     {...inventory, result_info: {...inventory.result_info, page: 2}},
