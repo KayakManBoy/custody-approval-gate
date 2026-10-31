@@ -131,7 +131,7 @@ test('public workflow is manual-only and keeps Cloudflare secrets out of unprivi
   assert.match(source, /workflow_dispatch:/);
   assert.doesNotMatch(source, /^\s+(push|pull_request|schedule|workflow_run):/m);
   assert.match(source, /environment: signer-custody-review/);
-  assert.match(source, /needs: inspect/);
+  assert.match(source, /needs: inspect/);\n  assert.match(source, /github\\.run_attempt == 1/g);\n  assert.equal((source.match(/github\\.run_attempt == 1/g) || []).length, 2);\n  assert.match(source, /secrets\\.CF_APPROVED_COMMIT_SHA/);\n  assert.doesNotMatch(source, /vars\\.APPROVED_COMMIT_SHA/);
   assert.match(source, /action == 'CREATE_ONCE'/);
   assert.match(source, /secrets\.CF_TEMP_EDIT_TOKEN/);
   const preflight = source.split('  create:\n')[0];

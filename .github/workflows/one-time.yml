@@ -17,7 +17,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   inspect:
-    if: ${{ github.repository == 'KayakManBoy/custody-approval-gate' && github.actor == 'KayakManBoy' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' }}
+    if: ${{ github.repository == 'KayakManBoy/custody-approval-gate' && github.actor == 'KayakManBoy' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && github.run_attempt == 1 }}
     runs-on: ubuntu-24.04
     timeout-minutes: 3
     permissions:
@@ -36,7 +36,7 @@ jobs:
           node scripts/verify-gate.mjs
   create:
     needs: inspect
-    if: ${{ github.repository == 'KayakManBoy/custody-approval-gate' && github.actor == 'KayakManBoy' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.action == 'CREATE_ONCE' }}
+    if: ${{ github.repository == 'KayakManBoy/custody-approval-gate' && github.actor == 'KayakManBoy' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.action == 'CREATE_ONCE' && github.run_attempt == 1 }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -49,7 +49,7 @@ jobs:
       - name: Create exactly one protected signing key (separate approval and consent required)
         env:
           CUSTODY_ACTION: ${{ inputs.action }}
-          APPROVED_COMMIT_SHA: ${{ vars.APPROVED_COMMIT_SHA }}
+          APPROVED_COMMIT_SHA: ${{ secrets.CF_APPROVED_COMMIT_SHA }}
           CF_TEMP_EDIT_TOKEN: ${{ secrets.CF_TEMP_EDIT_TOKEN }}
           CF_TARGET_ACCOUNT: ${{ secrets.CF_TARGET_ACCOUNT }}
           CF_TARGET_STORE: ${{ secrets.CF_TARGET_STORE }}
