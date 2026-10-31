@@ -166,5 +166,5 @@ test('inspect path uses only GitHub read access and never prints raw exceptions'
   assert.match(src,/process\.stderr\.write\(HOLD \+ ' stage=' \+ stage/);
   assert.match(src,/SAFE_STAGES\.has\(error\?\.stage\)/);
   assert.doesNotMatch(src,/console\.log|console\.error|JSON\.stringify\(environment\)|response\.statusText/);
-  assert.doesNotMatch(pre.split('  create:\\n')[0],/secrets\.|environment:|contents: write/);
+  assert.doesNotMatch(pre.split(/^  create:\s*$/m)[0],/secrets\.|environment:|contents: write/);
 });
