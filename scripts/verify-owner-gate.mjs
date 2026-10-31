@@ -4,6 +4,7 @@
  * GET only; never touches Cloudflare or an environment secret.
  */
 import {pathToFileURL} from 'node:url';
+import {isHeaderSafeGitHubToken} from './github-token.mjs';
 
 export const REPO = 'KayakManBoy/custody-approval-gate';
 export const OWNER = 'KayakManBoy';
@@ -22,7 +23,7 @@ const HOLD = 'HOLD_PA456_OWNER_CUSTODY_UNVERIFIED';
 // Each gate still rejects exactly as before; only the stable failure stage
 // becomes visible in the inspect job's existing sanitized HOLD message.
 const PHASES = ['ENV', 'POLICY', 'RULESET_LIST', 'RULESET', 'MAIN'];
-const SAFE_STAGES = new Set(['INPUT', 'ENV_SHAPE', 'ENV_REVIEWER',
+const SAFE_STAGES = new Set(['INPUT', 'INPUT_CONTEXT', 'INPUT_TOKEN', 'ENV_SHAPE', 'ENV_REVIEWER',
   'POLICY_SHAPE', 'RULESET_LIST_SHAPE', 'RULESET_SHAPE', 'RULESET_RULES',
   'RULESET_CI', 'MAIN_SHAPE']);
 for (const phase of PHASES) {
@@ -65,8 +66,8 @@ export async function verifyOwnerGate({repository, actor, ref, sha, githubToken,
   get = fetch} = {}) {
   if (repository !== REPO || actor !== OWNER || ref !== 'refs/heads/main' ||
     typeof sha !== 'string' || !/^[a-f0-9]{40}$/.test(sha) ||
-    typeof githubToken !== 'string' || !/^[A-Za-z0-9_+-]{20,512}$/.test(githubToken) ||
-    typeof get !== 'function') deny('INPUT');
+    typeof get !== 'function') deny('INPUT_CONTEXT');
+  if (!isHeaderSafeGitHubToken(githubToken)) deny('INPUT_TOKEN');
 
   const environment = await getJSON(get, ENV_URL, githubToken, 'ENV');
   if (!plain(environment) || environment.name !== ENVIRONMENT ||

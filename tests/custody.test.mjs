@@ -158,3 +158,16 @@ test('public workflow is manual-only and keeps Cloudflare secrets out of unprivi
   assert.match(preflight, /actions: read/);
   assert.doesNotMatch(source, /permissions:\s*\n\s*contents: write/);
 });
+
+test('independent gate treats current Actions JWT bearer as opaque and preserves reviewer gate',async()=>{
+  const jwtLike='ghs_15368_'+'a'.repeat(224)+'.'+'b'.repeat(224)+'.'+'c'.repeat(224);
+  assert.ok(jwtLike.length > 512);
+  let calls=0;
+  const get=async(url,opts)=>{
+    calls++;
+    assert.equal(opts.headers.authorization,'Bearer '+jwtLike);
+    return githubAPI()(url,opts);
+  };
+  assert.deepEqual(await verifyGate(verification({githubToken:jwtLike,get})),{verified:true});
+  assert.equal(calls,2);
+});

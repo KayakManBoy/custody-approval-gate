@@ -142,7 +142,8 @@ test('required CI workflow is pinned to an offline GitHub Actions test job',()=>
 });
 
 test('sanitized diagnostic codes identify fail-closed stage without exposing responses',async()=>{
-  await deniedStage({actor:'not-owner'},'INPUT');
+  await deniedStage({actor:'not-owner'},'INPUT_CONTEXT');
+  await deniedStage({githubToken:''},'INPUT_TOKEN');
   await deniedStage({get:fixtureGet({status:403})},'ENV_HTTP_403');
   await deniedStage({get:fixtureGet({status:404})},'ENV_HTTP_404');
   await deniedStage({get:async()=>{throw Error('private credential raw error');}},'ENV_NETWORK');
@@ -167,4 +168,20 @@ test('inspect path uses only GitHub read access and never prints raw exceptions'
   assert.match(src,/SAFE_STAGES\.has\(error\?\.stage\)/);
   assert.doesNotMatch(src,/console\.log|console\.error|JSON\.stringify\(environment\)|response\.statusText/);
   assert.doesNotMatch(pre.split(/^  create:\s*$/m)[0],/secrets\.|environment:|contents: write/);
+});
+
+test('2026 opaque GitHub Actions JWT token reaches GitHub metadata gate unchanged', async()=>{
+  const jwtLike = 'ghs_15368_' + 'a'.repeat(224) + '.' +
+    'b'.repeat(224) + '.' + 'c'.repeat(224);
+  assert.ok(jwtLike.length > 512);
+  let requests = 0;
+  const get = async (url,opts) => {
+    requests++;
+    assert.equal(opts.headers.authorization,'Bearer '+jwtLike);
+    return fixtureGet()(url,opts);
+  };
+  assert.deepEqual(await verifyOwnerGate(args({githubToken:jwtLike,get})),{
+    visibleRulesVerified:true,ownerAdminCheckRequired:true,
+    model:'OWNER_ONLY_NOT_INDEPENDENT',sha});
+  assert.equal(requests,5,'all original metadata GETs, no additional requests');
 });
