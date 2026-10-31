@@ -32,7 +32,9 @@ test('independent prewrite verification proves exact DER/JWK/fingerprint/kid pai
 test('unexpected generator outputs never reach Cloudflare POST',async()=>{
   const other=generateKeyPairSync('rsa',{modulusLength:2048}).publicKey.export({format:'jwk'});
   const modifications=[
-    {...key,secret:key.secret.slice(0,-2)+'XX'},
+    {...key,secret:'A'+key.secret.slice(1)}, // DER SEQUENCE tag is corrupted
+    {...key,secret:Buffer.concat([Buffer.from(key.secret,'base64url'),
+      Buffer.from([0x00,0x00])]).toString('base64url')}, // trailing DER bytes
     {...key,secret:'-----BEGIN PRIVATE KEY-----'},
     {...key,publicJwk:{...jwkPublic,n:other.n}},
     {...key,publicJwk:{...jwkPublic,alg:'RS512'}},

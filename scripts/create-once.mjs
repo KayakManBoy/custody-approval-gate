@@ -98,6 +98,14 @@ export function verifyPrewriteKeyMaterial(key) {
     der = Buffer.from(key.secret, 'base64url');
     if (der.byteLength < 900 || der.toString('base64url') !== key.secret) pre();
     const privateKey = createPrivateKey({key: der, format: 'der', type: 'pkcs8'});
+    // Some DER decoders accept trailing bytes or noncanonical encodings.
+    // Re-export the canonical PKCS8 and require exact equality with input.
+    // This also ensures the public receipt corresponds to precise POST bytes.
+    let canonical;
+    try {
+      canonical = privateKey.export({format:'der',type:'pkcs8'});
+      if (!canonical.equals(der)) pre();
+    } finally { if (canonical) canonical.fill(0); }
     if (privateKey.asymmetricKeyType !== 'rsa' ||
       privateKey.asymmetricKeyDetails?.modulusLength !== 2048 ||
       privateKey.asymmetricKeyDetails?.publicExponent !== 65537n) pre();
