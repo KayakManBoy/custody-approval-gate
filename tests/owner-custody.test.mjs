@@ -39,6 +39,13 @@ const args = overrides => ({repository: REPO, actor: OWNER, ref: 'refs/heads/mai
   sha, githubToken: token, get: fixtureGet(), ...overrides});
 const denied = async overrides =>
   assert.rejects(() => verifyOwnerGate(args(overrides)), /HOLD_PA456_OWNER_CUSTODY_UNVERIFIED/);
+const deniedStage = async (overrides, stage) =>
+  assert.rejects(() => verifyOwnerGate(args(overrides)), error => {
+    assert.equal(error.message, 'HOLD_PA456_OWNER_CUSTODY_UNVERIFIED');
+    assert.equal(error.stage, stage);
+    assert.doesNotMatch(String(error), /ghs_|Authorization:|Bearer /);
+    return true;
+  });
 const variation = patch => ({...ruleset, ...patch});
 
 test('owner-only is a labeled, exact-main protected check, not independent review', async () => {
@@ -132,4 +139,32 @@ test('required CI workflow is pinned to an offline GitHub Actions test job',()=>
   assert.match(source,/actions\/checkout@[a-f0-9]{40}/);
   assert.match(source,/persist-credentials: false/);
   assert.doesNotMatch(source,/secrets\.|environment:|contents: write|id-token: write|workflow_dispatch:/);
+});
+
+test('sanitized diagnostic codes identify fail-closed stage without exposing responses',async()=>{
+  await deniedStage({actor:'not-owner'},'INPUT');
+  await deniedStage({get:fixtureGet({status:403})},'ENV_HTTP_403');
+  await deniedStage({get:fixtureGet({status:404})},'ENV_HTTP_404');
+  await deniedStage({get:async()=>{throw Error('private credential raw error');}},'ENV_NETWORK');
+  await deniedStage({get:fixtureGet({redirect:true})},'ENV_RESPONSE');
+  await deniedStage({get:fixtureGet({environment:{...environment,name:'unexpected'}})},'ENV_SHAPE');
+  await deniedStage({get:fixtureGet({environment:{...environment,
+    protection_rules:[environment.protection_rules[0]]}})},'ENV_REVIEWER');
+  await deniedStage({get:fixtureGet({branches:{...branches,total_count:2}})},'POLICY_SHAPE');
+  await deniedStage({get:fixtureGet({listed:[]})},'RULESET_LIST_SHAPE');
+  await deniedStage({get:fixtureGet({ruleset:{...ruleset,conditions:null}})},'RULESET_SHAPE');
+  await deniedStage({get:fixtureGet({ruleset:{...ruleset,rules:[]}})},'RULESET_RULES');
+  await deniedStage({get:fixtureGet({ruleset:{...ruleset,rules:ruleset.rules.map(rule=>
+    rule.type==='required_status_checks' ? {...rule,parameters:{
+      ...rule.parameters, required_status_checks:[{context:'test',integration_id:42}]}} : rule)}})},'RULESET_CI');
+  await deniedStage({get:fixtureGet({main:{...main,protected:false}})},'MAIN_SHAPE');
+});
+
+test('inspect path uses only GitHub read access and never prints raw exceptions',()=>{
+  const src=readFileSync(new URL('../scripts/verify-owner-gate.mjs', import.meta.url),'utf8');
+  const pre=readFileSync(new URL('../.github/workflows/owner-one-time.yml', import.meta.url),'utf8');
+  assert.match(src,/process\.stderr\.write\(HOLD \+ ' stage=' \+ stage/);
+  assert.match(src,/SAFE_STAGES\.has\(error\?\.stage\)/);
+  assert.doesNotMatch(src,/console\.log|console\.error|JSON\.stringify\(environment\)|response\.statusText/);
+  assert.doesNotMatch(pre.split('  create:\\n')[0],/secrets\.|environment:|contents: write/);
 });
