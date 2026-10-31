@@ -71,7 +71,8 @@ export async function verifyOwnerGate({repository, actor, ref, sha, githubToken,
   if (!plain(ruleset) || ruleset.id !== list[0].id ||
     ruleset.target !== 'branch' || ruleset.enforcement !== 'active' ||
     ruleset.source_type !== 'Repository' || ruleset.source !== REPO ||
-    !Array.isArray(ruleset.bypass_actors) || ruleset.bypass_actors.length !== 0 ||
+    (Object.hasOwn(ruleset, 'bypass_actors') &&
+      (!Array.isArray(ruleset.bypass_actors) || ruleset.bypass_actors.length !== 0)) ||
     !plain(ruleset.conditions) || !plain(ruleset.conditions.ref_name) ||
     !exactArray(ruleset.conditions.ref_name.include, '~DEFAULT_BRANCH') ||
     !Array.isArray(ruleset.conditions.ref_name.exclude) ||
@@ -95,7 +96,10 @@ export async function verifyOwnerGate({repository, actor, ref, sha, githubToken,
   const main = await getJSON(get, MAIN_URL, githubToken);
   if (!plain(main) || main.name !== 'main' || main.protected !== true ||
     main.commit?.sha !== sha) deny();
-  return Object.freeze({verified: true, model: 'OWNER_ONLY_NOT_INDEPENDENT', sha});
+  // GitHub omits bypass_actors for read-only tokens. A human owner MUST inspect
+  // the no-bypass ruleset and admin environment bypass switches out of band.
+  return Object.freeze({visibleRulesVerified: true,
+    ownerAdminCheckRequired: true, model: 'OWNER_ONLY_NOT_INDEPENDENT', sha});
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
@@ -103,7 +107,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     await verifyOwnerGate({repository: process.env.GITHUB_REPOSITORY,
       actor: process.env.GITHUB_ACTOR, ref: process.env.GITHUB_REF,
       sha: process.env.GITHUB_SHA, githubToken: process.env.GITHUB_TOKEN});
-    process.stdout.write('PASS_PA456_OWNER_GATE_ONLY_NO_CLOUD_AUTHORITY\n');
+    process.stdout.write('PA456_VISIBLE_RULES_PASS_OWNER_ADMIN_CHECK_REQUIRED_NO_CLOUD_AUTHORITY\n');
   } catch {
     process.stderr.write(HOLD + '\n');
     process.exitCode = 1;
