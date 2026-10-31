@@ -1,5 +1,5 @@
 /** Generic one-time Secrets Store RSA-2048 bootstrap. No business identifiers in public source. */
-import {generateKeyPairSync, createHash, sign, verify} from 'node:crypto';
+import {generateKeyPairSync, createHash, createPrivateKey, createPublicKey, sign, verify} from 'node:crypto';
 import {pathToFileURL} from 'node:url';
 
 const hold = code => { throw Error(code); };
@@ -73,6 +73,50 @@ function makeKey() {
   finally { pkcs8.fill(0); }
 }
 
+
+/**
+ * Defense in depth: the advertised public receipt must cryptographically
+ * correspond to the EXACT PKCS8 bytes about to be sent to Cloudflare.
+ * Bad encodings, inconsistent kid/fingerprint, wrong key or algorithm HOLD.
+ * No secret, key, account identifier or source bytes are logged.
+ */
+export function verifyPrewriteKeyMaterial(key) {
+  if (!plain(key) || !plain(key.publicJwk) ||
+    typeof key.secret !== 'string' || key.secret.length < 1000 ||
+    key.secret.length > 8192 || !/^[A-Za-z0-9_-]+$/.test(key.secret) ||
+    Object.keys(key.publicJwk).sort().join(',') !== 'alg,e,ext,key_ops,kty,n' ||
+    key.publicJwk.kty !== 'RSA' || key.publicJwk.e !== 'AQAB' ||
+    key.publicJwk.alg !== 'RS256' || key.publicJwk.ext !== true ||
+    !Array.isArray(key.publicJwk.key_ops) ||
+    key.publicJwk.key_ops.length !== 1 || key.publicJwk.key_ops[0] !== 'verify' ||
+    typeof key.publicJwk.n !== 'string' ||
+    !/^[A-Za-z0-9_-]{342,683}$/.test(key.publicJwk.n) ||
+    typeof key.fingerprint !== 'string' || !/^[a-f0-9]{64}$/.test(key.fingerprint) ||
+    typeof key.kid !== 'string' || !/^rs256-[a-f0-9]{20}$/.test(key.kid)) pre();
+  let der;
+  try {
+    der = Buffer.from(key.secret, 'base64url');
+    if (der.byteLength < 900 || der.toString('base64url') !== key.secret) pre();
+    const privateKey = createPrivateKey({key: der, format: 'der', type: 'pkcs8'});
+    if (privateKey.asymmetricKeyType !== 'rsa' ||
+      privateKey.asymmetricKeyDetails?.modulusLength !== 2048 ||
+      privateKey.asymmetricKeyDetails?.publicExponent !== 65537n) pre();
+    const derived = createPublicKey(privateKey).export({format: 'jwk'});
+    if (!plain(derived) || derived.kty !== 'RSA' || derived.e !== 'AQAB' ||
+      derived.n !== key.publicJwk.n) pre();
+    const fingerprint = createHash('sha256').update(JSON.stringify({
+      kty:'RSA', n:derived.n, e:'AQAB'})).digest('hex');
+    if (key.fingerprint !== fingerprint ||
+      key.kid !== 'rs256-' + fingerprint.slice(0,20)) pre();
+    const advertised = createPublicKey({key:key.publicJwk, format:'jwk'});
+    const challenge = Buffer.from('PA461-PREWRITE-KEY-RECEIPT-PAIR-CHECK');
+    if (!verify('RSA-SHA256',challenge,advertised,
+      sign('RSA-SHA256',challenge,privateKey))) pre();
+    return true;
+  } catch { pre(); }
+  finally { if (der) der.fill(0); }
+}
+
 export async function createOnce({repo, actor, ref, sha, approvedSha, runAttempt = 1, action, token,
   account, store, secretName, fetchFn = fetch, generator = makeKey,
   tokenVerifier = verifyTokenLifetime, nowMs = Date.now()} = {}) {
@@ -100,17 +144,14 @@ export async function createOnce({repo, actor, ref, sha, approvedSha, runAttempt
     !Number.isSafeInteger(info.count) ||
     info.count !== listing.result.length ||
     listing.result.length > 100 || listing.result.some(x => !plain(x) ||
-      typeof x.name !== 'string' || x.name === secretName)) pre();
+      !hex32(x.id) || x.store_id !== store ||
+      !['active','pending','deleted'].includes(x.status) ||
+      typeof x.name !== 'string' || !/^[A-Z][A-Z0-9_]{4,80}$/.test(x.name) ||
+      x.name === secretName || Object.hasOwn(x,'value'))) pre();
   let key;
   try { key = generator(); } catch { pre(); }
-  if (!plain(key) || typeof key.secret !== 'string' || key.secret.length < 1000 ||
-    !plain(key.publicJwk) || key.publicJwk.kty !== 'RSA' ||
-    key.publicJwk.e !== 'AQAB' || key.publicJwk.alg !== 'RS256' ||
-    !Array.isArray(key.publicJwk.key_ops) || key.publicJwk.key_ops.join() !== 'verify' ||
-    key.publicJwk.ext !== true || typeof key.publicJwk.n !== 'string' ||
-    key.publicJwk.n.length < 342 ||
-    typeof key.fingerprint !== 'string' || !/^[a-f0-9]{64}$/.test(key.fingerprint) ||
-    typeof key.kid !== 'string' || !/^rs256-[a-f0-9]{20}$/.test(key.kid)) pre();
+  // Cross-check the exact DER and independently derive the receipt before POST.
+  verifyPrewriteKeyMaterial(key);
   // No automatic retry after this point. An uncertain write must be independently read back.
   let created;
   try {
