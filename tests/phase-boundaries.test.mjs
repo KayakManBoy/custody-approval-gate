@@ -41,7 +41,8 @@ test('inspect stage remains credential-free; create stage has exact environment 
     assert.match(create, new RegExp('environment: ' + environment), name);
     assert.doesNotMatch(create, /contents: write|actions: write|id-token: write/, name);
     assert.match(source, /github\.run_attempt == 1/g, name);
-    assert.equal((source.match(/github\.run_attempt == 1/g) || []).length, 2, name);
+    assert.equal((source.match(/github\.run_attempt == 1/g) || []).length,
+      name === 'owner' ? 3 : 2, name);
   }
 });
 

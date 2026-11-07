@@ -5,12 +5,13 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: 'CHECK_ONLY or separately authorized CREATE_ONCE'
+        description: 'CHECK_ONLY, protected CHECK_CONFIG_ONLY, or separately authorized CREATE_ONCE'
         required: true
         type: choice
         default: CHECK_ONLY
         options:
           - CHECK_ONLY
+          - CHECK_CONFIG_ONLY
           - CREATE_ONCE
 permissions: {}
 concurrency:
@@ -66,3 +67,26 @@ jobs:
         run: |
           node --check scripts/create-once.mjs
           node scripts/create-once.mjs
+  config_check:
+    needs: inspect
+    # Manual read-only source configuration check; no Cloudflare token or writes.
+    if: ${{ github.repository == 'KayakManBoy/custody-approval-gate' && github.actor == 'KayakManBoy' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.action == 'CHECK_CONFIG_ONLY' && github.run_attempt == 1 }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    permissions:
+      contents: read
+    environment: signer-custody-owner
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Validate effective protected configuration shapes (no provider access)
+        env:
+          CUSTODY_ACTION: ${{ inputs.action }}
+          APPROVED_COMMIT_SHA: ${{ secrets.CF_APPROVED_COMMIT_SHA }}
+          CF_TARGET_ACCOUNT: ${{ secrets.CF_TARGET_ACCOUNT }}
+          CF_TARGET_STORE: ${{ secrets.CF_TARGET_STORE }}
+          CF_TARGET_SECRET_NAME: ${{ secrets.CF_TARGET_SECRET_NAME }}
+        run: |
+          node --check scripts/config-only.mjs
+          node scripts/config-only.mjs

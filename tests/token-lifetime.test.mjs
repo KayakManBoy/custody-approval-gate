@@ -36,11 +36,18 @@ test('bounded UTC RFC3339 fractional precision is accepted',async()=>{
   }
 });
 
+test('seven-day max allows bounded one-week authority, not longer',async()=>{
+  for(const minutes of [61,90,1440,7*24*60]){
+    assert.deepEqual(await verifyTokenLifetime(args({fetchFn:get({...valid,
+      result:{...valid.result,expires_on:expires(minutes)}})})),
+      {active:true,boundedExpiration:true});
+  }
+});
 test('bounded active expiry is mandatory; no long-lived or missing validity',async()=>{
   for(const record of [
     {status:'disabled'}, {status:'expired'},
     {expires_on:undefined}, {expires_on:expires(1)},
-    {expires_on:expires(61)}, {expires_on:expires(-2)},
+    {expires_on:expires(7*24*60+1)}, {expires_on:expires(-2)},
     {expires_on:'2026-02-30T00:00:00Z'}, {expires_on:'tomorrow'},
     {expires_on:expires(20).replace('Z','.1234567890Z')},
     {not_before:expires(21)},{not_before:'bad'},
@@ -72,7 +79,7 @@ test('production createOnce checks real token verifier before inventory, key gen
     assert.equal(calls,1,'no inventory or POST on failed verification');
     assert.equal(url,verifyURL);
     assert.equal(init.method,'GET');
-    return response(url,{...valid,result:{...valid.result,expires_on:expires(90)}});
+    return response(url,{...valid,result:{...valid.result,expires_on:expires(7*24*60+1)}});
   };
   await assert.rejects(()=>createOnce({
     repo:'KayakManBoy/custody-approval-gate',actor:'KayakManBoy',ref:'refs/heads/main',

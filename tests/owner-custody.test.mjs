@@ -116,7 +116,7 @@ test('owner workflow never runs on push or accesses environment secrets in inspe
   assert.match(src, /needs: inspect/);
   assert.match(src.split('  create:\n')[0], /actions: read/);
   assert.match(src, /github.run_attempt == 1/g);
-  assert.equal((src.match(/github.run_attempt == 1/g) || []).length, 2);
+  assert.equal((src.match(/github.run_attempt == 1/g) || []).length, 3);
   const inspect = src.split('  create:\n')[0];
   assert.doesNotMatch(inspect, /secrets\./);
   assert.doesNotMatch(inspect, /environment:/);
