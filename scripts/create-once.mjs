@@ -3,8 +3,8 @@ import {generateKeyPairSync, createHash, createPrivateKey, createPublicKey, sign
 import {pathToFileURL} from 'node:url';
 
 const hold = code => { throw Error(code); };
-const pre = () => hold('HOLD_PREWRITE');
-const unknown = () => hold('HOLD_UNKNOWN_WRITE_NO_RETRY');
+const pre = (stage = 'PREWRITE') => { const e = Error('HOLD_PREWRITE'); e.stage = stage; throw e; };
+const unknown = () => { const e = Error('HOLD_UNKNOWN_WRITE_NO_RETRY'); e.stage = 'POST_UNKNOWN'; throw e; };
 const plain = x => x !== null && typeof x === 'object' && !Array.isArray(x);
 const hex32 = x => typeof x === 'string' && /^[a-f0-9]{32}$/.test(x);
 const bytes = x => typeof x === 'string' && /^[a-f0-9]{40}$/.test(x);
@@ -45,9 +45,10 @@ export async function verifyTokenLifetime({fetchFn = fetch, account, token,
     !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/.test(record.expires_on)) pre();
   const expires = Date.parse(record.expires_on);
   // Reject missing, expired and long-lived authority; preserve at least
-  // two minutes for a bounded write and no more than one hour of exposure.
+  // two minutes for a bounded write, at most seven days of remaining validity.
+  // Owner default is one week; promptly revoke after verified use.
   if (!Number.isFinite(expires) || expires - nowMs < 120000 ||
-    expires - nowMs > 3600000) pre();
+    expires - nowMs > 7 * 24 * 60 * 60 * 1000) pre();
   if (record.not_before !== undefined && record.not_before !== null) {
     if (typeof record.not_before !== 'string' ||
       !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/.test(record.not_before)) pre();
@@ -125,25 +126,44 @@ export function verifyPrewriteKeyMaterial(key) {
   finally { if (der) der.fill(0); }
 }
 
+/** Source-only checks also used by the manual no-cloud config diagnostic.
+ * Shape success is NOT proof that the private target values are correct. */
+export function verifyCustodyConfiguration({repo, actor, ref, sha, approvedSha,
+  runAttempt = 1, action, token, account, store, secretName,
+  requireToken = false} = {}) {
+  if (repo !== 'KayakManBoy/custody-approval-gate' || actor !== 'KayakManBoy' ||
+    ref !== 'refs/heads/main' || runAttempt !== 1 ||
+    action !== (requireToken ? 'CREATE_ONCE' : 'CHECK_CONFIG_ONLY')) pre('CONFIG_CONTEXT');
+  if (!bytes(sha) || sha !== approvedSha) pre('CONFIG_COMMIT');
+  if (!hex32(account)) pre('CONFIG_ACCOUNT');
+  if (!hex32(store)) pre('CONFIG_STORE');
+  if (typeof secretName !== 'string' || !/^[A-Z][A-Z0-9_]{4,80}$/.test(secretName))
+    pre('CONFIG_SECRET_NAME');
+  if (requireToken && (typeof token !== 'string' ||
+    !/^[A-Za-z0-9_-]{30,512}$/.test(token))) pre('CONFIG_TOKEN');
+  return Object.freeze({shapeVerified: true, manualTargetVerificationRequired: true});
+}
+
 export async function createOnce({repo, actor, ref, sha, approvedSha, runAttempt = 1, action, token,
   account, store, secretName, fetchFn = fetch, generator = makeKey,
   tokenVerifier = verifyTokenLifetime, nowMs = Date.now()} = {}) {
-  if (repo !== 'KayakManBoy/custody-approval-gate' || actor !== 'KayakManBoy' ||
-    ref !== 'refs/heads/main' || runAttempt !== 1 || action !== 'CREATE_ONCE' || !bytes(sha) ||
-    sha !== approvedSha || !hex32(account) || !hex32(store) ||
-    typeof secretName !== 'string' || !/^[A-Z][A-Z0-9_]{4,80}$/.test(secretName) ||
-    typeof token !== 'string' || !/^[A-Za-z0-9_-]{30,512}$/.test(token) ||
-    typeof fetchFn !== 'function' || typeof generator !== 'function' ||
-    typeof tokenVerifier !== 'function' || !Number.isSafeInteger(nowMs) || nowMs <= 0) pre();
+  verifyCustodyConfiguration({repo, actor, ref, sha, approvedSha, runAttempt,
+    action, token, account, store, secretName, requireToken: true});
+  if (typeof fetchFn !== 'function' || typeof generator !== 'function' ||
+    typeof tokenVerifier !== 'function' || !Number.isSafeInteger(nowMs) || nowMs <= 0)
+    pre('CONFIG_RUNTIME');
   const endpoint = 'https://api.cloudflare.com/client/v4/accounts/' + account +
     '/secrets_store/stores/' + store + '/secrets';
   const list = endpoint + '?per_page=100&page=1';
   const auth = {authorization: 'Bearer ' + token, accept: 'application/json'};
   // Verify the short-lived account token BEFORE inventory, key generation,
   // or any possible account-wide Secrets Store mutation.
-  try { await tokenVerifier({fetchFn, account, token, nowMs}); } catch { pre(); }
+  try {
+    const checked = await tokenVerifier({fetchFn, account, token, nowMs});
+    if (checked?.active !== true || checked?.boundedExpiration !== true) pre('TOKEN_VERIFY');
+  } catch { pre('TOKEN_VERIFY'); }
   let listing;
-  try { listing = await fetchJSON(fetchFn, list, {method: 'GET', headers: auth}, pre); } catch { pre(); }
+  try { listing = await fetchJSON(fetchFn, list, {method: 'GET', headers: auth}, pre); } catch { pre('INVENTORY_READ'); }
   const info = listing.result_info;
   // An incomplete inventory must NEVER be interpreted as a missing key.
   if (!plain(info) || info.page !== 1 || info.total_pages !== 1 ||
@@ -155,11 +175,11 @@ export async function createOnce({repo, actor, ref, sha, approvedSha, runAttempt
       !hex32(x.id) || x.store_id !== store ||
       !['active','pending','deleted'].includes(x.status) ||
       typeof x.name !== 'string' || !/^[A-Z][A-Z0-9_]{4,80}$/.test(x.name) ||
-      x.name === secretName || Object.hasOwn(x,'value'))) pre();
+      x.name === secretName || Object.hasOwn(x,'value'))) pre('INVENTORY_SHAPE');
   let key;
-  try { key = generator(); } catch { pre(); }
+  try { key = generator(); } catch { pre('KEY_GENERATION'); }
   // Cross-check the exact DER and independently derive the receipt before POST.
-  verifyPrewriteKeyMaterial(key);
+  try { verifyPrewriteKeyMaterial(key); } catch { pre('KEY_PREWRITE'); }
   // No automatic retry after this point. An uncertain write must be independently read back.
   let created;
   try {
@@ -191,8 +211,14 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     process.stdout.write('CREATE_ACCEPTED_PUBLIC_KEY_RECEIPT_FOLLOWS_READBACK_REQUIRED\n');
     process.stdout.write(JSON.stringify({status: result.status, kid: result.kid,
       fingerprint: result.fingerprint, publicJwk: result.publicJwk}) + '\n');
-  } catch {
-    process.stderr.write('HOLD_CUSTODY_NO_RETRY_INDEPENDENT_READBACK_REQUIRED\n');
+  } catch (error) {
+    const safe = new Set(['CONFIG_CONTEXT','CONFIG_COMMIT','CONFIG_ACCOUNT',
+      'CONFIG_STORE','CONFIG_SECRET_NAME','CONFIG_TOKEN','CONFIG_RUNTIME',
+      'TOKEN_VERIFY','INVENTORY_READ','INVENTORY_SHAPE',
+      'KEY_GENERATION','KEY_PREWRITE','POST_UNKNOWN']);
+    const stage = safe.has(error?.stage) ? error.stage : 'UNCLASSIFIED';
+    process.stderr.write('HOLD_CUSTODY_NO_RETRY_INDEPENDENT_READBACK_REQUIRED stage=' +
+      stage + '\n');
     process.exitCode = 1;
   }
 }
