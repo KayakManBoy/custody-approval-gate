@@ -114,7 +114,8 @@ test('before a write, mismatched SHA, owner, mode, target and inventory fail clo
     {...inventory, result_info: {...inventory.result_info, total_count: 2}},
     {...inventory, result_info: {...inventory.result_info, count: 0}},
     {...inventory, result_info: {...inventory.result_info, page: 2}},
-    {...inventory, result_info: {...inventory.result_info, total_count: undefined}},
+    {...inventory, result_info: {...inventory.result_info, total_count: undefined,
+      total_pages: undefined}},
     {...inventory, errors: ['bad']}, {...inventory, result: []},
   ]) {
     if (bad.result.length === 0) continue;
