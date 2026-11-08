@@ -144,6 +144,42 @@ export function verifyCustodyConfiguration({repo, actor, ref, sha, approvedSha,
   return Object.freeze({shapeVerified: true, manualTargetVerificationRequired: true});
 }
 
+/**
+ * Fail closed on pagination ambiguity, conflicting counts, malformed records
+ * or an existing target. Sanitized stages expose only failure classes, never
+ * raw provider metadata, names, account/store identifiers or values.
+ * A single page is proven by either total_pages === 1 or total_count
+ * exactly matching the returned page size, with no search/scope filters.
+ */
+export function verifyCompleteInventory(listing, {store, secretName} = {}) {
+  if (!plain(listing) || !Array.isArray(listing.result) ||
+    !hex32(store) || typeof secretName !== 'string') pre('INVENTORY_METADATA');
+  const info = listing.result_info;
+  const size = listing.result.length;
+  if (!plain(info) || info.page !== 1 || size > 100 ||
+    (info.per_page !== undefined &&
+      (!Number.isSafeInteger(info.per_page) || info.per_page < size ||
+       info.per_page < 1 || info.per_page > 100))) pre('INVENTORY_PAGE');
+  if (info.count !== undefined &&
+    (!Number.isSafeInteger(info.count) || info.count !== size))
+    pre('INVENTORY_COUNT');
+  if (info.total_count !== undefined &&
+    (!Number.isSafeInteger(info.total_count) || info.total_count !== size))
+    pre('INVENTORY_COUNT');
+  if (info.total_pages !== undefined &&
+    (!Number.isSafeInteger(info.total_pages) || info.total_pages !== 1))
+    pre('INVENTORY_PAGE');
+  if (info.total_count === undefined && info.total_pages === undefined)
+    pre('INVENTORY_COMPLETENESS');
+  if (listing.result.some(x => !plain(x) || !hex32(x.id) ||
+    x.store_id !== store || !['active','pending','deleted'].includes(x.status) ||
+    typeof x.name !== 'string' || !/^[A-Z][A-Z0-9_]{4,80}$/.test(x.name) ||
+    Object.hasOwn(x,'value'))) pre('INVENTORY_RECORD');
+  if (listing.result.some(x => x.name === secretName))
+    pre('INVENTORY_TARGET_PRESENT');
+  return Object.freeze({complete: true});
+}
+
 export async function createOnce({repo, actor, ref, sha, approvedSha, runAttempt = 1, action, token,
   account, store, secretName, fetchFn = fetch, generator = makeKey,
   tokenVerifier = verifyTokenLifetime, nowMs = Date.now()} = {}) {
@@ -164,18 +200,11 @@ export async function createOnce({repo, actor, ref, sha, approvedSha, runAttempt
   } catch { pre('TOKEN_VERIFY'); }
   let listing;
   try { listing = await fetchJSON(fetchFn, list, {method: 'GET', headers: auth}, pre); } catch { pre('INVENTORY_READ'); }
-  const info = listing.result_info;
-  // An incomplete inventory must NEVER be interpreted as a missing key.
-  if (!plain(info) || info.page !== 1 || info.total_pages !== 1 ||
-    !Number.isSafeInteger(info.total_count) ||
-    info.total_count !== listing.result.length ||
-    !Number.isSafeInteger(info.count) ||
-    info.count !== listing.result.length ||
-    listing.result.length > 100 || listing.result.some(x => !plain(x) ||
-      !hex32(x.id) || x.store_id !== store ||
-      !['active','pending','deleted'].includes(x.status) ||
-      typeof x.name !== 'string' || !/^[A-Z][A-Z0-9_]{4,80}$/.test(x.name) ||
-      x.name === secretName || Object.hasOwn(x,'value'))) pre('INVENTORY_SHAPE');
+  // Cloudflare documents count, total_count, total_pages and per_page as
+  // optional. Insist on positive proof of a complete, first-page inventory
+  // rather than making every optional field mandatory. Never infer absence
+  // from an unproven or inconsistent page.
+  verifyCompleteInventory(listing, {store, secretName});
   let key;
   try { key = generator(); } catch { pre('KEY_GENERATION'); }
   // Cross-check the exact DER and independently derive the receipt before POST.
@@ -214,7 +243,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   } catch (error) {
     const safe = new Set(['CONFIG_CONTEXT','CONFIG_COMMIT','CONFIG_ACCOUNT',
       'CONFIG_STORE','CONFIG_SECRET_NAME','CONFIG_TOKEN','CONFIG_RUNTIME',
-      'TOKEN_VERIFY','INVENTORY_READ','INVENTORY_SHAPE',
+      'TOKEN_VERIFY','INVENTORY_READ','INVENTORY_METADATA','INVENTORY_PAGE',
+      'INVENTORY_COUNT','INVENTORY_COMPLETENESS','INVENTORY_RECORD',
+      'INVENTORY_TARGET_PRESENT',
       'KEY_GENERATION','KEY_PREWRITE','POST_UNKNOWN']);
     const stage = safe.has(error?.stage) ? error.stage : 'UNCLASSIFIED';
     process.stderr.write('HOLD_CUSTODY_NO_RETRY_INDEPENDENT_READBACK_REQUIRED stage=' +
